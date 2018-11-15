@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component
 
 
 @Component
-@Profile("manual")
+@Profile(["manual", "trycatch"])
 class StandardTestClassNomenclatureFactory implements TestClassNomenclatureFactory {
     @Override
     TestClassNomenclature newTestClassNomenclature() {

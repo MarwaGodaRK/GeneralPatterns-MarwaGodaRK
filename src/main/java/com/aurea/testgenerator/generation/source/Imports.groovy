@@ -69,6 +69,10 @@ class Imports {
     static final ImportDeclaration MOCK_MVC_BUILDERS = parse('org.springframework.test.web.servlet.setup.MockMvcBuilders')
     static final ImportDeclaration MEDIA_TYPE = parse('org.springframework.http.MediaType')
 
+    //trycatch
+    static final ImportDeclaration STATIC_MOCKITO_ASTERISK = new ImportDeclaration(new Name('org.mockito.Mockito'), true, true)
+
+
 
     static ImportDeclaration parse(String fullClassName) {
         JavaParser.parseImport("import $fullClassName;")
