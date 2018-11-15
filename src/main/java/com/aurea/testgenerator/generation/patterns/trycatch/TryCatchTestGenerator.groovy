@@ -176,7 +176,7 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
     @Override
     protected TestType getType() {
-        return TryCatchTestTypes.RETHROW_EXCEPTION
+        return TryCatchTestTypes.CATCH_EXCEPTION_TEST
     }
 
 

@@ -43,10 +43,7 @@ class TestMethodNomenclature {
             (PojoTestTypes.POJO_TESTER_HASH_CODE)                       : 'HashCode',
             (PojoTestTypes.POJO_TESTER_CONSTRUCTORS)                    : 'Constructors',
 
-            (TryCatchTestTypes.RETHROW_EXCEPTION)                       : 'RethrowException',
-            (TryCatchTestTypes.THROW_NEW_EXCEPTION)                     : 'ThrowNewException',
-            (TryCatchTestTypes.RETURN_FROM_CATCH)                       : 'ReturnFromCatch',
-            (TryCatchTestTypes.MULTIPLE_EXCEPTION)                      : 'CatchMultipleExceptions',
+            (TryCatchTestTypes.CATCH_EXCEPTION_TEST)                       : 'CatchExceptionTest'
 
 
     ].asImmutable()
