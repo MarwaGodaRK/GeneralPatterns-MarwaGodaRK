@@ -1,20 +1,20 @@
 package com.aurea.testgenerator.generation.patterns.trycatch
 
 import com.aurea.testgenerator.generation.AbstractMethodTestGenerator
-import com.aurea.testgenerator.generation.TestGeneratorError;
-import com.aurea.testgenerator.generation.TestGeneratorResult;
-import com.aurea.testgenerator.generation.TestType;
+import com.aurea.testgenerator.generation.TestGeneratorError
+import com.aurea.testgenerator.generation.TestGeneratorResult
+import com.aurea.testgenerator.generation.TestType
 import com.aurea.testgenerator.generation.ast.DependableNode
 import com.aurea.testgenerator.generation.merge.TestNodeMerger
 import com.aurea.testgenerator.generation.methods.MethodsUtils
-import com.aurea.testgenerator.generation.mock.util.MockitoUtils;
-import com.aurea.testgenerator.generation.names.NomenclatureFactory;
+import com.aurea.testgenerator.generation.mock.util.MockitoUtils
+import com.aurea.testgenerator.generation.names.NomenclatureFactory
 import com.aurea.testgenerator.generation.names.TestMethodNomenclature
-import com.aurea.testgenerator.generation.source.Imports;
-import com.aurea.testgenerator.reporting.CoverageReporter;
-import com.aurea.testgenerator.reporting.TestGeneratorResultReporter;
+import com.aurea.testgenerator.generation.source.Imports
+import com.aurea.testgenerator.reporting.CoverageReporter
+import com.aurea.testgenerator.reporting.TestGeneratorResultReporter
 import com.aurea.testgenerator.source.Unit
-import com.aurea.testgenerator.value.ValueFactory;
+import com.aurea.testgenerator.value.ValueFactory
 import com.github.javaparser.JavaParser
 import com.github.javaparser.ast.AccessSpecifier
 import com.github.javaparser.ast.ImportDeclaration
@@ -22,13 +22,14 @@ import com.github.javaparser.ast.NodeList
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration
 import com.github.javaparser.ast.expr.MethodCallExpr
-import com.github.javaparser.ast.expr.ObjectCreationExpr
+import com.github.javaparser.ast.expr.NameExpr
 import com.github.javaparser.ast.expr.VariableDeclarationExpr
 import com.github.javaparser.ast.stmt.BlockStmt
-import com.github.javaparser.ast.stmt.CatchClause;
-import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.CatchClause
+import com.github.javaparser.ast.stmt.ExpressionStmt
+import com.github.javaparser.ast.stmt.ThrowStmt
 import com.github.javaparser.ast.stmt.TryStmt
-import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.type.Type
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade
 import groovy.util.logging.Log4j2
 import org.springframework.context.annotation.Profile
@@ -37,7 +38,7 @@ import org.springframework.stereotype.Component
 @Component
 @Profile("trycatch")
 @Log4j2
-public class TryCatchTestGenerator extends AbstractMethodTestGenerator {
+class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
     ValueFactory valueFactory
     private static final String EXPECTED_RESULT = "expectedResult"
@@ -47,31 +48,40 @@ public class TryCatchTestGenerator extends AbstractMethodTestGenerator {
             Imports.JUNIT_TEST,
     ]
 
-    public TryCatchTestGenerator(JavaParserFacade solver, TestGeneratorResultReporter reporter,
-                                 CoverageReporter visitReporter, NomenclatureFactory nomenclatures,
-                                 ValueFactory valueFactory) {
+    TryCatchTestGenerator(JavaParserFacade solver, TestGeneratorResultReporter reporter,
+                          CoverageReporter visitReporter, NomenclatureFactory nomenclatures,
+                          ValueFactory valueFactory) {
         super(solver, reporter, visitReporter, nomenclatures)
         this.valueFactory = valueFactory
     }
 
     @Override
     protected TestGeneratorResult generate(MethodDeclaration callableDeclaration, Unit unitUnderTest) {
-        TestGeneratorResult result = new TestGeneratorResult()
 
+        TestGeneratorResult result = new TestGeneratorResult()
 
         Collection<BlockStmt> tryStmts = callableDeclaration.findAll(TryStmt).tryBlock
 
-        List<NodeList<CatchClause>> catchExpr = callableDeclaration.findAll(TryStmt).catchClauses.first()
+        NodeList<CatchClause> catchExpr = callableDeclaration.findAll(TryStmt).catchClauses.first()
         Type catchClauseParameterType = catchExpr.first().parameter.type
+        Type newThrownExceptionType
+        Optional<BlockStmt> catchBlockStmt = catchExpr.childNodes.first().stream().filter { b -> b instanceof BlockStmt }.findFirst()
+        Optional<BlockStmt> throwStmt = catchBlockStmt.get().statements.stream().filter { b -> b instanceof ThrowStmt }.findFirst()
+        if (throwStmt.isPresent()) {
+            if (!(throwStmt.get().expression instanceof NameExpr)) {
+                newThrownExceptionType = throwStmt.get().expression.type
+            }
+        }
 
         Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
             m ->
                 m.resolveInvokedMethod().getSpecifiedExceptions().findAll { catchClauseParameterType }.size() > 0 &&
                         m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
         }.findFirst()
+
         if (methodCallExpr.isPresent()) {
             try {
-                DependableNode<MethodDeclaration> testMethod = buildTestMethod(unitUnderTest, callableDeclaration, methodCallExpr.get(), catchClauseParameterType)
+                DependableNode<MethodDeclaration> testMethod = buildTestMethod(unitUnderTest, callableDeclaration, methodCallExpr.get(), catchClauseParameterType, newThrownExceptionType)
 
                 result.tests = [testMethod]
 
@@ -84,12 +94,12 @@ public class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
     }
 
-    DependableNode<MethodDeclaration> buildTestMethod(Unit unitUnderTest, MethodDeclaration method, MethodCallExpr methodCallExpr, Type catchedException) {
+    DependableNode<MethodDeclaration> buildTestMethod(Unit unitUnderTest, MethodDeclaration method, MethodCallExpr methodCallExpr, Type catchedException, Type rethrownExceptionType) {
         String testName = getTestMethodName(unitUnderTest, method)
         String args = MockitoUtils.getArgs(method, methodCallExpr)
         ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
         String testCode = """
-            @Test(expected=${catchedException}.class)
+            @Test(expected=${rethrownExceptionType != null ? rethrownExceptionType : catchedException}.class)
             public void ${testName}() throws Exception {
                 ${parentClass.name} object = new ${parentClass.name}();
 
@@ -157,13 +167,13 @@ public class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
     @Override
     protected TestType getType() {
-        return TryCatchTestTypes.RETHROW_EXCEPTION;
+        return TryCatchTestTypes.RETHROW_EXCEPTION
     }
 
 
     @Override
     protected boolean shouldBeVisited(Unit unit, MethodDeclaration method) {
-        return super.shouldBeVisited(unit, method) && containsNonNestedTryCatchBlock(method);
+        return super.shouldBeVisited(unit, method) && containsNonNestedTryCatchBlock(method)
     }
 
     private static boolean containsNonNestedTryCatchBlock(MethodDeclaration method) {
