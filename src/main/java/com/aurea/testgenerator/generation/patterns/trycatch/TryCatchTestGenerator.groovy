@@ -36,6 +36,7 @@ import groovy.util.logging.Log4j2
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
 
+
 @Component
 @Profile("trycatch")
 @Log4j2
@@ -50,8 +51,8 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
     ]
 
     TryCatchTestGenerator(JavaParserFacade solver, TestGeneratorResultReporter reporter,
-                                 CoverageReporter visitReporter, NomenclatureFactory nomenclatures,
-                                 ValueFactory valueFactory) {
+                          CoverageReporter visitReporter, NomenclatureFactory nomenclatures,
+                          ValueFactory valueFactory) {
         super(solver, reporter, visitReporter, nomenclatures)
         this.valueFactory = valueFactory
     }
@@ -112,12 +113,13 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
             @Test${expectedClause}
             public void ${testName}() throws Exception {
                 ${parentClass.name} object = new ${parentClass.name}();
+                object = Mockito.spy(object);
 
                 ${getVariableStatements(method)}
 
                doThrow(new ${catchedException}()).when(${getScope(methodCallExpr)}).${methodCallExpr.nameAsString}($args);     
          
-               ${getVerifyCode(methodCallExpr, args)}
+               ${getVerifyCode(method)}
              }
             """
         return getTestMethod(method, testCode)
@@ -132,16 +134,6 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
         method.parameters.collect {
             new ExpressionStmt(valueFactory.getVariable(it.nameAsString, it.type).get().node)
         }.join(System.lineSeparator())
-    }
-
-    private String getExpectedResultStatementCode(MethodDeclaration method, MethodCallExpr delegateExpression, String args) {
-        getExpectedResultDepNode(method).map {
-            """
-            Mockito.mock.when(${getScope(delegateExpression)}.${delegateExpression.nameAsString}($args)).thenReturn(${
-                EXPECTED_RESULT
-            });
-            """
-        }.orElse("")
     }
 
     private Optional<DependableNode<VariableDeclarationExpr>> getExpectedResultDepNode(MethodDeclaration method) {
@@ -160,8 +152,15 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
         }
     }
 
-    private static String getVerifyCode(MethodCallExpr delegateExpression, String args) {
-        "Mockito.verify(${getScope(delegateExpression)}).${delegateExpression.nameAsString}($args);".toString()
+    private String getVerifyCode(MethodDeclaration method) {
+        String params = ""
+        if (method.parameters.size() > 0) {
+            params = method.parameters.collect {
+                "$it.name.identifier"
+            }.join(",")
+        }
+
+        "object.${method.nameAsString}(${params});".toString()
     }
 
     private DependableNode<MethodDeclaration> getTestMethod(MethodDeclaration methodDeclaration, String testCode) {
