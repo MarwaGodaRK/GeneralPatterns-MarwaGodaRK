@@ -9,6 +9,7 @@ import com.aurea.testgenerator.generation.patterns.springcontrollers.SpringContr
 import com.aurea.testgenerator.generation.patterns.singleton.SingletonTypes
 import com.aurea.testgenerator.generation.patterns.springrepository.SpringRepositoryTestTypes
 import com.aurea.testgenerator.generation.patterns.staticfactory.StaticFactoryMethodTypes
+import com.aurea.testgenerator.generation.patterns.trycatch.TryCatchTestTypes
 import com.github.javaparser.ast.Node
 import com.github.javaparser.ast.body.CallableDeclaration
 import com.github.javaparser.ast.body.TypeDeclaration
@@ -40,7 +41,11 @@ class TestMethodNomenclature {
             (PojoTestTypes.POJO_TESTER_TO_STRING)                       : 'ToString',
             (PojoTestTypes.POJO_TESTER_EQUALS)                          : 'Equals',
             (PojoTestTypes.POJO_TESTER_HASH_CODE)                       : 'HashCode',
-            (PojoTestTypes.POJO_TESTER_CONSTRUCTORS)                    : 'Constructors'
+            (PojoTestTypes.POJO_TESTER_CONSTRUCTORS)                    : 'Constructors',
+
+            (TryCatchTestTypes.CATCH_EXCEPTION_TEST)                       : 'CatchExceptionTest'
+
+
     ].asImmutable()
 
     private static final Map<? extends TestType, String> TEST_METHOD_NAME_PREFIXES = [
@@ -75,10 +80,12 @@ class TestMethodNomenclature {
                 case SingletonTypes:
                 case SpringControllersTestTypes:
                 case SpringRepositoryTestTypes:
+                case TryCatchTestTypes:
                     return new CallableNameRepository(suffix, context as CallableDeclaration).get()
                 case PojoTestTypes:
                     String prefix = TEST_METHOD_NAME_PREFIXES[type]
                     return new TypeNameRepository(prefix, suffix, context as TypeDeclaration).get()
+
             }
 
             throw new IllegalArgumentException("Cannot generate name for $type in $context")
