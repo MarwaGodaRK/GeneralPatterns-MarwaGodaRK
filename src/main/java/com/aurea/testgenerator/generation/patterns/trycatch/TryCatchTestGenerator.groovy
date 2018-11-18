@@ -87,7 +87,7 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
         Collection<BlockStmt> tryStmts = method.findAll(TryStmt).tryBlock
         Type catchedException = catchExpr.first().parameter.type
-        Type newThrownExceptionType = detectExceptionHandlingAction(catchExpr)
+        def (boolean catchClauseHasReturnStmt, Type newThrownExceptionType) = detectExceptionHandlingAction(catchExpr)
 
         Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
             m ->
@@ -100,7 +100,7 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
             String testName = getTestMethodName(unitUnderTest, method)
             String args = MockitoUtils.getArgs(method, methodCallExpr.get())
             ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
-            String expectedClause =  "(expected=" + (newThrownExceptionType != null ? newThrownExceptionType : catchedException) + ".class)"
+            String expectedClause = catchClauseHasReturnStmt ? "" : "(expected=" + (newThrownExceptionType != null ? newThrownExceptionType : catchedException) + ".class)"
             String testCode = """
             
             @Test${expectedClause}
@@ -121,18 +121,21 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
     }
 
 
-    private Type detectExceptionHandlingAction(NodeList<CatchClause> catchExpr) {
+    private List detectExceptionHandlingAction(NodeList<CatchClause> catchExpr) {
 
         Optional<BlockStmt> catchBlockStmt = catchExpr.childNodes.first().stream().filter { b -> b instanceof BlockStmt }.findFirst()
         Optional<BlockStmt> throwStmt = catchBlockStmt.get().statements.stream().filter { b -> b instanceof ThrowStmt }.findFirst()
-
+        Optional<BlockStmt> returnStmt = catchBlockStmt.get().statements.stream().filter { b -> b instanceof ReturnStmt }.findFirst()
         Type newThrownExceptionType
-         if (throwStmt.isPresent()) {
+        boolean catchClauseHasReturnStmt
+        if (returnStmt.isPresent()) {
+            catchClauseHasReturnStmt = true
+        } else if (throwStmt.isPresent()) {
             if (!(throwStmt.get().expression instanceof NameExpr)) {
                 newThrownExceptionType = throwStmt.get().expression.type
             }
         }
-        newThrownExceptionType
+        [catchClauseHasReturnStmt, newThrownExceptionType]
     }
 
     private String getTestMethodName(Unit unit, MethodDeclaration method) {
