@@ -62,10 +62,67 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
         TestGeneratorResult result = new TestGeneratorResult()
 
-        Collection<BlockStmt> tryStmts = callableDeclaration.findAll(TryStmt).tryBlock
+        List<NodeList<CatchClause>> catchClauses = callableDeclaration.findAll(TryStmt).catchClauses
+        NodeList<CatchClause> catchExpr = catchClauses.size() > 0 && catchClauses.first().size() > 0 ? catchClauses.first() : null
 
-        NodeList<CatchClause> catchExpr = callableDeclaration.findAll(TryStmt).catchClauses.first()
-        Type catchClauseParameterType = catchExpr.first().parameter.type
+        if (catchExpr != null) {
+            try {
+                DependableNode<MethodDeclaration> testMethod = buildTestMethod(unitUnderTest, callableDeclaration, catchExpr)
+
+                if(testMethod != null) {
+                    result.tests = [testMethod]
+                }
+
+            } catch (
+                    TestGeneratorError tge) {
+                result.errors << tge
+            }
+        }
+
+        result
+
+    }
+
+    DependableNode<MethodDeclaration> buildTestMethod(Unit unitUnderTest, MethodDeclaration method, NodeList<CatchClause> catchExpr) {
+
+        Collection<BlockStmt> tryStmts = method.findAll(TryStmt).tryBlock
+        Type catchedException = catchExpr.first().parameter.type
+        def (boolean catchClauseHasReturnStmt, Type newThrownExceptionType) = detectExceptionHandlingAction(catchExpr)
+
+        Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
+            m ->
+                m.resolveInvokedMethod().getSpecifiedExceptions().findAll { catchedException }.size() > 0 &&
+                        m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
+        }.findFirst()
+
+        if (methodCallExpr.isPresent()) {
+
+            String testName = getTestMethodName(unitUnderTest, method)
+            String args = MockitoUtils.getArgs(method, methodCallExpr.get())
+            ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
+            String expectedClause = catchClauseHasReturnStmt ? "" : "(expected=" + (newThrownExceptionType != null ? newThrownExceptionType : catchedException) + ".class)"
+            String testCode = """
+            
+            @Test${expectedClause}
+            public void ${testName}() throws Exception {
+                ${parentClass.name} object = new ${parentClass.name}();
+                object = Mockito.spy(object);
+
+                ${getVariableStatements(method)}
+
+               doThrow(new ${catchedException}()).when(${getScope(methodCallExpr.get())}).${methodCallExpr.get().nameAsString}($args);     
+         
+               ${getVerifyCode(method)}
+             }
+            """
+            return getTestMethod(method, testCode)
+
+        }
+    }
+
+
+    private List detectExceptionHandlingAction(NodeList<CatchClause> catchExpr) {
+
         Optional<BlockStmt> catchBlockStmt = catchExpr.childNodes.first().stream().filter { b -> b instanceof BlockStmt }.findFirst()
         Optional<BlockStmt> throwStmt = catchBlockStmt.get().statements.stream().filter { b -> b instanceof ThrowStmt }.findFirst()
         Optional<BlockStmt> returnStmt = catchBlockStmt.get().statements.stream().filter { b -> b instanceof ReturnStmt }.findFirst()
@@ -78,51 +135,7 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
                 newThrownExceptionType = throwStmt.get().expression.type
             }
         }
-
-        Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
-            m ->
-                m.resolveInvokedMethod().getSpecifiedExceptions().findAll { catchClauseParameterType }.size() > 0 &&
-                        m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
-        }.findFirst()
-
-        if (methodCallExpr.isPresent()) {
-            try {
-                DependableNode<MethodDeclaration> testMethod = buildTestMethod(unitUnderTest, callableDeclaration,
-                        methodCallExpr.get(), catchClauseParameterType, newThrownExceptionType, catchClauseHasReturnStmt)
-
-
-                result.tests = [testMethod]
-
-            } catch (
-                    TestGeneratorError tge) {
-                result.errors << tge
-            }
-        }
-        result
-
-    }
-
-    DependableNode<MethodDeclaration> buildTestMethod(Unit unitUnderTest, MethodDeclaration method,
-                                                      MethodCallExpr methodCallExpr, Type catchedException, Type rethrownExceptionType, boolean catchClauseHasReturnStmt) {
-        String testName = getTestMethodName(unitUnderTest, method)
-        String args = MockitoUtils.getArgs(method, methodCallExpr)
-        ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
-        String expectedClause = catchClauseHasReturnStmt ? "" : "(expected=" + (rethrownExceptionType != null ? rethrownExceptionType : catchedException) + ".class)"
-        String testCode = """
-            
-            @Test${expectedClause}
-            public void ${testName}() throws Exception {
-                ${parentClass.name} object = new ${parentClass.name}();
-                object = Mockito.spy(object);
-
-                ${getVariableStatements(method)}
-
-               doThrow(new ${catchedException}()).when(${getScope(methodCallExpr)}).${methodCallExpr.nameAsString}($args);     
-         
-               ${getVerifyCode(method)}
-             }
-            """
-        return getTestMethod(method, testCode)
+        [catchClauseHasReturnStmt, newThrownExceptionType]
     }
 
     private String getTestMethodName(Unit unit, MethodDeclaration method) {
@@ -168,9 +181,9 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
         getExpectedResultDepNode(methodDeclaration)
                 .ifPresent { TestNodeMerger.appendDependencies(testMethod, it) }
-
         testMethod.node = JavaParser.parseBodyDeclaration(testCode).asMethodDeclaration()
         testMethod.dependency.imports << IMPORTS
+
         testMethod
     }
 
@@ -188,5 +201,6 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
     private static boolean containsNonNestedTryCatchBlock(MethodDeclaration method) {
         method.findFirst(TryStmt).isPresent() && method.findFirst(TryStmt).get().getParentNode().get().parentNode.get().equals(method)
     }
+
 }
 
