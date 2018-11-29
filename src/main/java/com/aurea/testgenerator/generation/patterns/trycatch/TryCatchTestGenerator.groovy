@@ -1,5 +1,6 @@
 package com.aurea.testgenerator.generation.patterns.trycatch
 
+
 import com.aurea.testgenerator.generation.AbstractMethodTestGenerator
 import com.aurea.testgenerator.generation.TestGeneratorError
 import com.aurea.testgenerator.generation.TestGeneratorResult
@@ -31,10 +32,13 @@ import com.github.javaparser.ast.stmt.ReturnStmt
 import com.github.javaparser.ast.stmt.ThrowStmt
 import com.github.javaparser.ast.stmt.TryStmt
 import com.github.javaparser.ast.type.Type
+import com.github.javaparser.ast.type.UnionType
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade
 import groovy.util.logging.Log4j2
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Component
+
+import java.util.stream.Collectors
 
 
 @Component
@@ -47,7 +51,7 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
     private static final List<ImportDeclaration> IMPORTS = [
             Imports.MOCKITO,
             Imports.STATIC_MOCKITO_ASTERISK,
-            Imports.JUNIT_TEST,
+            Imports.JUNIT_TEST
     ]
 
     TryCatchTestGenerator(JavaParserFacade solver, TestGeneratorResultReporter reporter,
@@ -89,22 +93,32 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
                                                       NodeList<CatchClause> catchExpr) {
 
         Collection<BlockStmt> tryStmts = method.findAll(TryStmt).tryBlock
-        Type catchedException = catchExpr.first().parameter.type
-        def (boolean catchClauseHasReturnStmt, Type newThrownExceptionType) = detectExceptionHandlingAction(catchExpr)
 
+        Type catchedExceptions = catchExpr.first().parameter.type
+        List<String> exceptionTypes = new ArrayList<>()
+        if(catchedExceptions instanceof UnionType && catchedExceptions.elements.size() > 1){
+            exceptionTypes.addAll(catchedExceptions.elements.toList().stream().map({t-> t.resolve().asReferenceType().getQualifiedName()})
+                    .collect(Collectors.toList()))
+        }else{
+            exceptionTypes.add(exceptionTypes)
+        }
         Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
             m ->
-                m.resolveInvokedMethod().getSpecifiedExceptions().findAll { catchedException }.size() > 0 &&
+                m.resolveInvokedMethod().getSpecifiedExceptions().stream()
+                        .filter({e->exceptionTypes.contains(e.describe())})
+                        .collect(Collectors.toList()).size() > 0 &&
                         m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
         }.findFirst()
 
         if (methodCallExpr.isPresent()) {
-
+            def (boolean catchClauseHasReturnStmt, Type newThrownExceptionType) = detectExceptionHandlingAction(catchExpr)
+            String catchedException = methodCallExpr.get().resolveInvokedMethod().getSpecifiedExceptions().get(0).describe()
             String testName = getTestMethodName(unitUnderTest, method)
             String args = MockitoUtils.getArgs(method, methodCallExpr.get())
+            String expectedExceptionsCommaSeparated = "(expected=" + (exceptionTypes.size() == 1 ?  exceptionTypes.get(0) : "Exception")+".class)"
             ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
-            String expectedClause = catchClauseHasReturnStmt ? "" : "(expected=" +
-                    (newThrownExceptionType != null ? newThrownExceptionType : catchedException) + ".class)"
+            String expectedClause = catchClauseHasReturnStmt ? "" :
+                    (newThrownExceptionType == null ?   expectedExceptionsCommaSeparated : "(expected=" +newThrownExceptionType +".class)")
             String testCode = """
             
             @Test${expectedClause}
