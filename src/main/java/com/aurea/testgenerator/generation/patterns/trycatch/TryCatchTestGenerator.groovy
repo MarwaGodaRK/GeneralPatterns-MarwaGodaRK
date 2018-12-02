@@ -33,6 +33,7 @@ import com.github.javaparser.ast.stmt.ThrowStmt
 import com.github.javaparser.ast.stmt.TryStmt
 import com.github.javaparser.ast.type.Type
 import com.github.javaparser.ast.type.UnionType
+import com.github.javaparser.resolution.types.ResolvedType
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade
 import groovy.util.logging.Log4j2
 import org.springframework.context.annotation.Profile
@@ -94,31 +95,25 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
 
         Collection<BlockStmt> tryStmts = method.findAll(TryStmt).tryBlock
 
-        Type catchedExceptions = catchExpr.first().parameter.type
-        List<String> exceptionTypes = new ArrayList<>()
-        if(catchedExceptions instanceof UnionType && catchedExceptions.elements.size() > 1){
-            exceptionTypes.addAll(catchedExceptions.elements.toList().stream().map({t-> t.resolve().asReferenceType().getQualifiedName()})
-                    .collect(Collectors.toList()))
-        }else{
-            exceptionTypes.add(exceptionTypes)
-        }
-        Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
-            m ->
-                m.resolveInvokedMethod().getSpecifiedExceptions().stream()
-                        .filter({e->exceptionTypes.contains(e.describe())})
-                        .collect(Collectors.toList()).size() > 0 &&
-                        m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
-        }.findFirst()
+        ArrayList<String> exceptionTypes = extractCaughtExceptionsList(catchExpr)
+
+        Optional<MethodCallExpr> methodCallExpr = extractMethodExprThatThrowsCaughtException(tryStmts, exceptionTypes)
 
         if (methodCallExpr.isPresent()) {
             def (boolean catchClauseHasReturnStmt, Type newThrownExceptionType) = detectExceptionHandlingAction(catchExpr)
-            String catchedException = methodCallExpr.get().resolveInvokedMethod().getSpecifiedExceptions().get(0).describe()
-            String testName = getTestMethodName(unitUnderTest, method)
+
             String args = MockitoUtils.getArgs(method, methodCallExpr.get())
-            String expectedExceptionsCommaSeparated = "(expected=" + (exceptionTypes.size() == 1 ?  exceptionTypes.get(0) : "Exception")+".class)"
+
+            String expectedClause = catchClauseHasReturnStmt ? "" : "(expected=" +
+                    (newThrownExceptionType == null ?
+                            (exceptionTypes.size() == 1 ?  exceptionTypes.get(0) : "Exception") :
+                            newThrownExceptionType ) + ".class)"
+
+            String catchedException = getTypeClassName(methodCallExpr.get().resolveInvokedMethod().getSpecifiedExceptions().get(0))
+
+            String testName = getTestMethodName(unitUnderTest, method)
             ClassOrInterfaceDeclaration parentClass = method.getAncestorOfType(ClassOrInterfaceDeclaration).get()
-            String expectedClause = catchClauseHasReturnStmt ? "" :
-                    (newThrownExceptionType == null ?   expectedExceptionsCommaSeparated : "(expected=" +newThrownExceptionType +".class)")
+
             String testCode = """
             
             @Test${expectedClause}
@@ -138,6 +133,35 @@ class TryCatchTestGenerator extends AbstractMethodTestGenerator {
             return getTestMethod(method, testCode)
 
         }
+    }
+
+    private ArrayList<String> extractCaughtExceptionsList(NodeList<CatchClause> catchExpr) {
+        Type catchedExceptions = catchExpr.first().parameter.type
+        List<String> exceptionTypes = new ArrayList<>()
+        if (catchedExceptions instanceof UnionType && catchedExceptions.elements.size() > 1) {
+            exceptionTypes.addAll(catchedExceptions.elements.toList().stream().map({ t -> t.toString() })
+                    .collect(Collectors.toList()))
+        } else {
+            exceptionTypes.add(catchedExceptions.toString())
+        }
+        exceptionTypes
+    }
+
+    private Optional<MethodCallExpr> extractMethodExprThatThrowsCaughtException(ArrayList<BlockStmt> tryStmts, exceptionTypes) {
+        Optional<MethodCallExpr> methodCallExpr = tryStmts.first().findAll(MethodCallExpr).stream().filter {
+            m ->
+                m.resolveInvokedMethod().getSpecifiedExceptions().stream()
+                        .filter({ e -> exceptionTypes.contains(getTypeClassName(e)) })
+                        .collect(Collectors.toList()).size() > 0 &&
+                        m.resolveInvokedMethod().accessSpecifier() != AccessSpecifier.PRIVATE
+        }.findFirst()
+        methodCallExpr
+    }
+
+
+
+    private String getTypeClassName(ResolvedType e) {
+        JavaParser.parseClassOrInterfaceType(e.asReferenceType().qualifiedName).name.toString()
     }
 
 
